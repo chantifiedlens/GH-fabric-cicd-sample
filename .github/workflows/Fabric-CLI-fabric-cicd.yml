@@ -1,0 +1,106 @@
+name: Deploy via Fabric-CLI and fabric-cicd
+
+# Note this repository requires the below GitHub secrets configured:
+# AZURE_CLIENT_ID - Your service principal client ID.
+# AZURE_CLIENT_SECRET - Your service principal secret. Note this is the secret value.
+# AZURE_TENANT_ID - Your Microsoft Entra tenant ID.
+
+# In addition, the below repository variables need to be configured:
+# ItemsInScope - List of all items you want deployed. For this example, I opted for the below items in the below format:
+#    "Notebook,Environment,Report,SemanticModel"
+# ProdWorkspace - GUID value of the production workspace. 
+# TestWorkspace - GUID value of the test workspace.
+
+#Sets the trigger to manual
+on:
+  workflow_dispatch:
+      inputs:
+        WorkspaceName:
+          description: 'Workspace name'
+          required: true
+          default: 'FabricCLI'
+          type: string
+        CapacityName:
+          description: 'Fabric capacity name'
+          required: true
+          default: 'Trial'
+          type: string
+        # This is to add a user during the script, you are more than welcome to remove this parameter
+        EntraObjectId:
+          description: 'Object Id of the Microsoft Entra user'
+          required: true
+          default: '00000000-0000-0000-0000-000000000000'
+          type: string
+
+# Specify ResourceUrl
+# You can also add items in scope here
+env:
+  resourceUrl: https://api.fabric.microsoft.com
+  # ItemsInScope: "Notebook,Environment,Report,SemanticModel,MirroredDatabase"
+
+jobs:
+
+  # Job to create and populate
+  'CreateandPopulateWorkspace':
+    # I use a GitHub-Hosted runner here, you can opt to use a self-hosted one instead
+    runs-on: windows-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+
+      # Use specific version of Python
+      - name: Setup Python
+        uses: actions/setup-python@v5.5.0
+        with:
+          # Version range or exact version of Python or PyPy to use, using SemVer's version range syntax. Reads from .python-version if unset.
+          python-version: 3.12
+
+      # Install necessary libraries
+      - name: Install necessary libraries
+        run: |
+            python -m pip install --upgrade pip
+            pip install ms-fabric-cli
+            pip install fabric-cicd
+      
+      # Authenticate as Service Principal for Fabric-CLI
+      - name: Authenticate as Service Principal for Fabric-CLI
+        run: |
+            fab auth login -u ${{secrets.AZURE_CLIENT_ID}} -p ${{secrets.AZURE_CLIENT_SECRET}} --tenant ${{secrets.AZURE_TENANT_ID}} 
+
+      # Create the workspace with Fabric-CLI
+      - name: Create the workspace with ms-fabric-cli
+        run: |
+            fab create ${{github.event.inputs.WorkspaceName}}.Workspace -P capacityname=${{github.event.inputs.CapacityName}}
+
+      # Add permissions to workspace
+      - name: Add permissions to workspace
+        run: |
+          fab acl set ${{github.event.inputs.WorkspaceName}}.Workspace -I ${{github.event.inputs.EntraObjectId}} -R admin -f
+
+      # # Get Workspace Id
+      # - name: Get Workspace Id
+      #   run: |
+          
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4.2.2
+
+      # Authenticate as Service Principal for fabric-cicd
+      - name: Authenticate as Service Principal for fabric-cicd
+        run: |
+            Install-Module -Name Az.Accounts -AllowClobber -Force
+
+            $SecureStringPwd = ConvertTo-SecureString ${{secrets.AZURE_CLIENT_SECRET}} -AsPlainText -Force
+            $pscredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList ${{secrets.AZURE_CLIENT_ID}}, $SecureStringPwd
+                              
+            Connect-AzAccount -ServicePrincipal -Credential $pscredential -Tenant ${{secrets.AZURE_TENANT_ID}}    
+
+            $fabricToken = (Get-AzAccessToken -ResourceUrl ${{env.resourceUrl}}).Token
+
+       # Run script to deploy with fabric-cicd to new workspace
+      - name: Run script to get the workspace Id and deploy with fabric-cicd to new workspace
+        run: |
+          $WorkspaceId = fab get ${{github.event.inputs.WorkspaceName}}.Workspace -q id
+          python auth_spn_secret_AzDo.py --WorkspaceId $WorkspaceId --Environment "Prod" --RepositoryDirectory ".\workspace" --ItemsInScope  ${{vars.ItemsInScope}}
+          
+  
