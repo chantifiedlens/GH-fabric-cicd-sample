@@ -1,0 +1,59 @@
+name: Deploy securely with OIDC and fab deploy
+
+#Sets the trigger to manual
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+      
+jobs: 
+  test:
+    permissions:
+      id-token: write # Require write permission to Fetch an OIDC token.
+      contents: read
+
+    runs-on: windows-latest
+    steps:
+
+    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    - uses: actions/checkout@v6        
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    # Use specific version of Python
+    - name: Setup Python
+      uses: actions/setup-python@v5.5.0
+      with:
+        python-version: 3.12
+
+    # Install necessary libraries
+    - name: Install necessary libraries
+      run: |
+        python -m pip install --upgrade pip
+        pip install ms-fabric-cli     
+    
+
+    - name: Log in to Fabric CLI
+      env:
+        FAB_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        FAB_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      shell: pwsh
+      run: |
+        fab config set encryption_fallback_enabled true
+        
+        $tokenUrl = "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange"
+        $response = Invoke-RestMethod -Uri $tokenUrl -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" }
+        $FED_TOKEN = $response.value
+        
+        fab auth login -u $env:FAB_CLIENT_ID --tenant $env:FAB_TENANT_ID --federated-token $FED_TOKEN
+        fab ls
+
+    - name: Deploy workspace items with Fabric CLI
+      shell: pwsh
+      run: |
+        fab deploy --config "./workspace/config.yml" --target_env "${{vars.TargetEnvironment}}" -f
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Fabric CLI deploy failed for target environment: ${{vars.TargetEnvironment}}"
+        }
