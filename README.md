@@ -8,6 +8,8 @@ The repository includes three workflows in `/.github/workflows`:
 
 The `fabric-cicd-demo-variables.yml` workflow is based on a blog post that covers how to [operationalize fabric-cicd to work with Microsoft Fabric and GitHub Actions](https://ChantifiedLens.com/2025/04/11/operationalize-fabric-cicd-to-work-with-Microsoft-Fabric-and-GitHub-Actions/).
 
+The `OIDC-fab-deploy.yml` workflow is based on a blog post that covers how to [perform Fabric CI/CD securely in GitHub with OpenID Connect and fab deploy](https://chantifiedlens.com/2026/06/02/perform-fabric-ci-cd-securely-in-github-with-openid-connect-and-fab-deploy/).
+
 ## Workflow summary
 
 ### `fabric-cicd-demo-variables.yml`
